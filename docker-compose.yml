@@ -1,0 +1,22 @@
+version: '2'
+services:
+  kitchen-server:
+    container_name: kitchen-service
+    image: lmoisei/kitchen-service:latest
+    ports:
+      - 8081:8081
+    networks:
+      - spring-cloud-network
+  dinning-hall-server:
+    depends_on:
+      kitchen-server:
+        condition: service_started
+    container_name: dinning-hall-service
+    image: lmoisei/dinning-hall-service:latest
+    ports:
+      - 8080:8080
+    networks:
+      - spring-cloud-network
+networks:
+  spring-cloud-network:
+    driver: bridge

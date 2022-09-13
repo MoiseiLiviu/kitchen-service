@@ -19,7 +19,7 @@ public class Cook {
 
     private Long id;
     private int rank;
-    private int proeficiency;
+    private int proficiency;
     private ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
 
     private final Queue<OrderItem> itemsQueue = new PriorityQueue<>(11, Comparator.comparing(OrderItem::getPriority));
@@ -27,15 +27,15 @@ public class Cook {
     private AtomicLong idCounter = new AtomicLong();
     private int concurrentDishesCounter = 0;
 
-    public Cook(Integer rank, Integer proeficiency) {
+    public Cook(Integer rank, Integer proficiency) {
         this.id = idCounter.incrementAndGet();
         this.rank = rank;
-        this.proeficiency = proeficiency;
+        this.proficiency = proficiency;
     }
 
     public void takeOrderItem(OrderItem orderItem) {
 
-        if (concurrentDishesCounter == proeficiency) {
+        if (concurrentDishesCounter == proficiency) {
             itemsQueue.add(orderItem);
         } else {
             this.concurrentDishesCounter++;
@@ -46,38 +46,48 @@ public class Cook {
     public void cookOrderItem(OrderItem orderItem) {
         try {
             if (orderItem != null) {
-                if (orderItem.getCookingApparatus() != null) {
-                    if (orderItem.getCookingApparatus().equals(CookingApparatus.OVEN)) {
-                        KitchenServiceImpl.ovenSemaphore.release();
-                    } else if (orderItem.getCookingApparatus().equals(CookingApparatus.STOVE)) {
-                        KitchenServiceImpl.stoveSemaphore.release();
-                    }
-                }
+                releaseCookingApparatus(orderItem);
                 this.concurrentDishesCounter--;
                 log.info(String.format("Order item %s is ready.", orderItem));
                 KitchenServiceImpl.checkIfOrderIsReady(orderItem, this.id);
-                if (concurrentDishesCounter != proeficiency) {
+                if (concurrentDishesCounter != proficiency) {
                     OrderItem nextItem = itemsQueue.poll();
                     if (nextItem != null) {
                         this.concurrentDishesCounter++;
-                        //Solve dead lock
-                        if (nextItem.getCookingApparatus() != null) {
-                            if (nextItem.getCookingApparatus().equals(CookingApparatus.OVEN)) {
-                                KitchenServiceImpl.useOven();
-                            } else if (nextItem.getCookingApparatus().equals(CookingApparatus.STOVE)) {
-                                KitchenServiceImpl.useStove();
-                            }
-                        }
+                        acquireCookingApparatusIfNeeded(nextItem);
                         executorService.schedule(() -> cookOrderItem(nextItem), nextItem.getCookingTime(), TimeUnit.MICROSECONDS);
                     }
                 }
             }
-        } catch (Exception ex) {
+        } catch (InterruptedException ex) {
             log.error(ex.getMessage());
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private void releaseCookingApparatus(OrderItem orderItem) {
+
+        if (orderItem.getCookingApparatus() != null) {
+            if (orderItem.getCookingApparatus().equals(CookingApparatus.OVEN)) {
+                KitchenServiceImpl.ovenSemaphore.release();
+            } else if (orderItem.getCookingApparatus().equals(CookingApparatus.STOVE)) {
+                KitchenServiceImpl.stoveSemaphore.release();
+            }
+        }
+    }
+
+    private void acquireCookingApparatusIfNeeded(OrderItem orderItem) throws InterruptedException {
+
+        if (orderItem.getCookingApparatus() != null) {
+            if (orderItem.getCookingApparatus().equals(CookingApparatus.OVEN)) {
+                KitchenServiceImpl.useOven();
+            } else if (orderItem.getCookingApparatus().equals(CookingApparatus.STOVE)) {
+                KitchenServiceImpl.useStove();
+            }
         }
     }
 
     public double getOrderItemsQueueSizeProeficiencyRatio() {
-        return (itemsQueue.size() / (double) proeficiency);
+        return (itemsQueue.size() / (double) proficiency);
     }
 }
