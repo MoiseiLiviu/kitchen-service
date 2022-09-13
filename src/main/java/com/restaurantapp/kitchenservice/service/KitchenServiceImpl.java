@@ -20,7 +20,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class KitchenServiceImpl implements KitchenService {
 
-    private static final String dinningServiceHallUrl = "http://localhost:8080/dinning-hall/distribution";
+    private static final String dinningServiceHallUrl = "http://dinning-hall-service:8080/dinning-hall/distribution";
 
     private final List<Cook> cooks = new ArrayList<>();
 
