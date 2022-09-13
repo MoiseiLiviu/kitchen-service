@@ -4,7 +4,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restaurantapp.kitchenservice.model.*;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -31,16 +30,17 @@ public class KitchenServiceImpl implements KitchenService {
     public static final Semaphore stoveSemaphore = new Semaphore(NUMBER_OF_STOVES);
     public static final Semaphore ovenSemaphore = new Semaphore(NUMBER_OF_OVENS);
 
-    public static final Map<Long, List<FoodDetails>> orderToFoodListMap = new ConcurrentHashMap<>();
+    protected static final Map<Long, List<FoodDetails>> orderToFoodListMap = new ConcurrentHashMap<>();
 
     private final ExecutorService orderItemDispatcher = Executors.newSingleThreadExecutor();
 
-    public static final List<MenuItem> menuItems = initMenuItems();
-    public static final List<Order> orders = new CopyOnWriteArrayList<>();
+    protected final List<MenuItem> menuItems;
+    protected static final List<Order> orders = new CopyOnWriteArrayList<>();
 
 
-    KitchenServiceImpl() {
+    KitchenServiceImpl() throws IOException {
         initCooks();
+        menuItems = initMenuItems();
     }
 
     private void initCooks() {
@@ -74,7 +74,7 @@ public class KitchenServiceImpl implements KitchenService {
         selectedCook.takeOrderItem(orderItem);
     }
 
-    private static List<MenuItem> initMenuItems() {
+    private static List<MenuItem> initMenuItems() throws IOException {
 
         ObjectMapper mapper = new ObjectMapper();
         InputStream is = KitchenServiceImpl.class.getResourceAsStream("/menu-items.json");
@@ -82,7 +82,8 @@ public class KitchenServiceImpl implements KitchenService {
             return mapper.readValue(is, new TypeReference<List<MenuItem>>() {
             });
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            log.error(e.getMessage());
+            throw e;
         }
     }
 
@@ -98,7 +99,7 @@ public class KitchenServiceImpl implements KitchenService {
         ovenSemaphore.acquire();
     }
 
-    public synchronized static void checkIfOrderIsReady(OrderItem orderItem, Long cookId){
+    public static synchronized void checkIfOrderIsReady(OrderItem orderItem, Long cookId){
 
         Order order = getOrderById(orderItem.getOrderId());
         orderToFoodListMap.putIfAbsent(orderItem.getOrderId(), new ArrayList<>());
