@@ -20,7 +20,7 @@ public class Cook {
     private Long id;
     private int rank;
     private int proeficiency;
-    private ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
+    private ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
 
     private final Queue<OrderItem> itemsQueue = new PriorityQueue<>(11, Comparator.comparing(OrderItem::getPriority));
 
@@ -46,26 +46,33 @@ public class Cook {
     public void cookOrderItem(OrderItem orderItem) {
         try {
             if (orderItem != null) {
-                if (orderItem.getCookingApparatus().equals(CookingApparatus.OVEN)) {
-                    KitchenServiceImpl.ovenSemaphore.release();
-                } else if (orderItem.getCookingApparatus().equals(CookingApparatus.STOVE)) {
-                    KitchenServiceImpl.stoveSemaphore.release();
+                if (orderItem.getCookingApparatus() != null) {
+                    if (orderItem.getCookingApparatus().equals(CookingApparatus.OVEN)) {
+                        KitchenServiceImpl.ovenSemaphore.release();
+                    } else if (orderItem.getCookingApparatus().equals(CookingApparatus.STOVE)) {
+                        KitchenServiceImpl.stoveSemaphore.release();
+                    }
                 }
                 this.concurrentDishesCounter--;
                 log.info(String.format("Order item %s is ready.", orderItem));
                 KitchenServiceImpl.checkIfOrderIsReady(orderItem, this.id);
-                OrderItem nextItem = itemsQueue.poll();
-                if (nextItem != null) {
-                    this.concurrentDishesCounter++;
-                    if (nextItem.getCookingApparatus().equals(CookingApparatus.OVEN)) {
-                        KitchenServiceImpl.useOven();
-                    } else if (nextItem.getCookingApparatus().equals(CookingApparatus.STOVE)) {
-                        KitchenServiceImpl.useStove();
+                if (concurrentDishesCounter != proeficiency) {
+                    OrderItem nextItem = itemsQueue.poll();
+                    if (nextItem != null) {
+                        this.concurrentDishesCounter++;
+                        //Solve dead lock
+                        if (nextItem.getCookingApparatus() != null) {
+                            if (nextItem.getCookingApparatus().equals(CookingApparatus.OVEN)) {
+                                KitchenServiceImpl.useOven();
+                            } else if (nextItem.getCookingApparatus().equals(CookingApparatus.STOVE)) {
+                                KitchenServiceImpl.useStove();
+                            }
+                        }
+                        executorService.schedule(() -> cookOrderItem(nextItem), nextItem.getCookingTime(), TimeUnit.MICROSECONDS);
                     }
-                    executorService.schedule(() -> cookOrderItem(itemsQueue.poll()), orderItem.getCookingTime(), TimeUnit.MICROSECONDS);
                 }
             }
-        } catch (InterruptedException ex){
+        } catch (Exception ex) {
             log.error(ex.getMessage());
         }
     }

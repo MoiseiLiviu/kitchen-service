@@ -21,8 +21,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class KitchenServiceImpl implements KitchenService {
 
-    @Value("${dinning-hall.service.url}")
-    private static String dinningServiceHallUrl;
+    private static final String dinningServiceHallUrl = "http://localhost:8080/dinning-hall/distribution";
 
     private final List<Cook> cooks = new ArrayList<>();
 
@@ -99,10 +98,10 @@ public class KitchenServiceImpl implements KitchenService {
         ovenSemaphore.acquire();
     }
 
-    public static void checkIfOrderIsReady(OrderItem orderItem, Long cookId){
+    public synchronized static void checkIfOrderIsReady(OrderItem orderItem, Long cookId){
 
         Order order = getOrderById(orderItem.getOrderId());
-        orderToFoodListMap.putIfAbsent(orderItem.getOrderId(), new CopyOnWriteArrayList<>());
+        orderToFoodListMap.putIfAbsent(orderItem.getOrderId(), new ArrayList<>());
         List<FoodDetails> foodDetails = orderToFoodListMap.get(orderItem.getOrderId());
         foodDetails.add(new FoodDetails(orderItem.getMenuId(), cookId));
         if(foodDetails.size() == order.getItems().size()){
@@ -121,11 +120,14 @@ public class KitchenServiceImpl implements KitchenService {
         finishedOrder.setCookingTime(Instant.now().getEpochSecond() - order.getOrderReceivedAt().getEpochSecond());
         finishedOrder.setPickUpTime(order.getPickUpTime());
         finishedOrder.setMaximumWaitTime(order.getMaximumWaitTime());
+        finishedOrder.setTableId(order.getTableId());
 
         RestTemplate restTemplate = new RestTemplate();
         ResponseEntity<Void> response = restTemplate.postForEntity(dinningServiceHallUrl, finishedOrder, Void.class);
         if(response.getStatusCode() != HttpStatus.ACCEPTED){
             log.error("Order couldn't be sent back to dinning hall service!");
+        } else {
+            log.info("Order "+finishedOrder+" was sent back to kitchen successfully.");
         }
     }
 
