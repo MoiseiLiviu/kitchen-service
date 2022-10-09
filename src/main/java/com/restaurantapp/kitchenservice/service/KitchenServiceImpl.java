@@ -4,7 +4,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restaurantapp.kitchenservice.model.*;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -21,8 +20,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class KitchenServiceImpl implements KitchenService {
 
-    @Value("${dinning-hall.service.url}")
-    private static String dinningServiceHallUrl;
+    private static final String dinningServiceHallUrl = "http://localhost:8080/dinning-hall/distribution";
 
     private final List<Cook> cooks = new ArrayList<>();
 
@@ -32,16 +30,17 @@ public class KitchenServiceImpl implements KitchenService {
     public static final Semaphore stoveSemaphore = new Semaphore(NUMBER_OF_STOVES);
     public static final Semaphore ovenSemaphore = new Semaphore(NUMBER_OF_OVENS);
 
-    public static final Map<Long, List<FoodDetails>> orderToFoodListMap = new ConcurrentHashMap<>();
+    protected static final Map<Long, List<FoodDetails>> orderToFoodListMap = new ConcurrentHashMap<>();
 
-    private final ExecutorService orderItemDispatcher = Executors.newSingleThreadExecutor();
+    protected final List<MenuItem> menuItems;
+    protected static final List<Order> orders = new CopyOnWriteArrayList<>();
 
-    public static final List<MenuItem> menuItems = initMenuItems();
-    public static final List<Order> orders = new CopyOnWriteArrayList<>();
+    public static BlockingQueue<OrderItem> items = new LinkedBlockingQueue<>();
 
 
-    KitchenServiceImpl() {
+    KitchenServiceImpl() throws IOException {
         initCooks();
+        menuItems = initMenuItems();
     }
 
     private void initCooks() {
@@ -55,27 +54,19 @@ public class KitchenServiceImpl implements KitchenService {
     public void takeOrder(Order order) {
 
         order.setOrderReceivedAt(Instant.now());
+        orderToFoodListMap.put(order.getOrderId(), new ArrayList<>());
         orders.add(order);
-        List<OrderItem> orderItems = order.getItems()
+        order.getItems()
                 .stream()
                 .map(this::getMenuItemById)
                 .map(mi -> new OrderItem(mi.getId(), order.getOrderId(), order.getPriority(), mi.getCookingApparatus(),
                         mi.getComplexity(), mi.getPreparationTime(), mi.getComplexity()))
-                .collect(Collectors.toList());
-        orderItems.forEach(orderItem -> orderItemDispatcher.submit(() -> dispatchOrderItemToTheRightCook(orderItem)));
+                .forEach(i -> {
+                    items.add(i);
+                });
     }
 
-    private void dispatchOrderItemToTheRightCook(OrderItem orderItem) {
-
-        Cook selectedCook = cooks.stream()
-                .filter(c -> c.getRank() >= orderItem.getComplexity())
-                .min(Comparator.comparing(Cook::getOrderItemsQueueSizeProeficiencyRatio)
-                        .thenComparing(Cook::getRank))
-                .orElseThrow();
-        selectedCook.takeOrderItem(orderItem);
-    }
-
-    private static List<MenuItem> initMenuItems() {
+    private static List<MenuItem> initMenuItems() throws IOException {
 
         ObjectMapper mapper = new ObjectMapper();
         InputStream is = KitchenServiceImpl.class.getResourceAsStream("/menu-items.json");
@@ -83,7 +74,8 @@ public class KitchenServiceImpl implements KitchenService {
             return mapper.readValue(is, new TypeReference<List<MenuItem>>() {
             });
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            log.error(e.getMessage());
+            throw e;
         }
     }
 
@@ -99,18 +91,21 @@ public class KitchenServiceImpl implements KitchenService {
         ovenSemaphore.acquire();
     }
 
-    public static void checkIfOrderIsReady(OrderItem orderItem, Long cookId){
+    public static void checkIfOrderIsReady(OrderItem orderItem, Long cookId) {
 
         Order order = getOrderById(orderItem.getOrderId());
-        orderToFoodListMap.putIfAbsent(orderItem.getOrderId(), new CopyOnWriteArrayList<>());
+        System.out.println("order item : "+orderItem);
         List<FoodDetails> foodDetails = orderToFoodListMap.get(orderItem.getOrderId());
         foodDetails.add(new FoodDetails(orderItem.getMenuId(), cookId));
-        if(foodDetails.size() == order.getItems().size()){
+        if (foodDetails.size() == order.getItems().size()) {
             sendFinishedOrderBackToKitchen(order);
         }
     }
 
-    private static void sendFinishedOrderBackToKitchen(Order order){
+    private static void sendFinishedOrderBackToKitchen(Order order) {
+
+        orders.remove(order);
+        orderToFoodListMap.remove(order.getOrderId());
 
         FinishedOrder finishedOrder = new FinishedOrder();
         finishedOrder.setOrderId(order.getOrderId());
@@ -121,15 +116,18 @@ public class KitchenServiceImpl implements KitchenService {
         finishedOrder.setCookingTime(Instant.now().getEpochSecond() - order.getOrderReceivedAt().getEpochSecond());
         finishedOrder.setPickUpTime(order.getPickUpTime());
         finishedOrder.setMaximumWaitTime(order.getMaximumWaitTime());
+        finishedOrder.setTableId(order.getTableId());
 
         RestTemplate restTemplate = new RestTemplate();
         ResponseEntity<Void> response = restTemplate.postForEntity(dinningServiceHallUrl, finishedOrder, Void.class);
-        if(response.getStatusCode() != HttpStatus.ACCEPTED){
+        if (response.getStatusCode() != HttpStatus.ACCEPTED) {
             log.error("Order couldn't be sent back to dinning hall service!");
+        } else {
+            log.info("Order " + finishedOrder + " was sent back to kitchen successfully.");
         }
     }
 
-    public static Order getOrderById(Long id){
-        return orders.stream().filter(o->o.getOrderId().equals(id)).findFirst().orElseThrow();
+    public static Order getOrderById(Long id) {
+        return orders.stream().filter(o -> o.getOrderId().equals(id)).findFirst().orElseThrow();
     }
 }
