@@ -68,4 +68,8 @@ public class Cook {
             return KitchenServiceImpl.ovenSemaphore;
         } else return KitchenServiceImpl.stoveSemaphore;
     }
+
+    public int getProficiency() {
+        return proficiency;
+    }
 }

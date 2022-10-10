@@ -17,8 +17,13 @@ public class KitchenController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.ACCEPTED)
-    public void takeOrder(@RequestBody Order order){
+    public Double takeOrder(@RequestBody Order order){
         log.info(order.toString());
-        kitchenService.takeOrder(order);
+        return kitchenService.takeOrder(order);
+    }
+
+    @GetMapping("/{id}")
+    public Double getEstimatedPrepTimeForOrderById(@PathVariable Long orderId){
+        return kitchenService.getEstimatedPrepTimeForOrderById(orderId);
     }
 }

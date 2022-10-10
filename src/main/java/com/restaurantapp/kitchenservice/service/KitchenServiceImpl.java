@@ -20,7 +20,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class KitchenServiceImpl implements KitchenService {
 
-    private static final String dinningServiceHallUrl = "http://localhost:8080/dinning-hall/distribution";
+    private static final String dinningServiceHallUrl = "http://localhost:8082/dinning-hall/distribution";
 
     private final List<Cook> cooks = new ArrayList<>();
 
@@ -51,7 +51,7 @@ public class KitchenServiceImpl implements KitchenService {
     }
 
     @Override
-    public void takeOrder(Order order) {
+    public Double takeOrder(Order order) {
 
         order.setOrderReceivedAt(Instant.now());
         orderToFoodListMap.put(order.getOrderId(), new ArrayList<>());
@@ -61,9 +61,35 @@ public class KitchenServiceImpl implements KitchenService {
                 .map(this::getMenuItemById)
                 .map(mi -> new OrderItem(mi.getId(), order.getOrderId(), order.getPriority(), mi.getCookingApparatus(),
                         mi.getComplexity(), mi.getPreparationTime(), mi.getComplexity()))
-                .forEach(i -> {
-                    items.add(i);
-                });
+                .forEach(i -> items.add(i));
+        if(order.getWaiterId() == null){
+            return getEstimatedPrepTimeForOrderById(order.getOrderId());
+        }
+        return null;
+    }
+
+    @Override
+    public Double getEstimatedPrepTimeForOrderById(Long orderId) {
+        if(orderToFoodListMap.containsKey(orderId)) {
+            int B = cooks.stream().mapToInt(Cook::getProficiency).sum();
+            List<Long> cookedItemsIds = orderToFoodListMap.get(orderId).stream().map(FoodDetails::getItemId).collect(Collectors.toList());
+            Order order = getOrderById(orderId);
+            List<MenuItem> itemsNotReady = order.getItems().stream().filter(i -> !cookedItemsIds.contains(i)).map(this::getMenuItemById).collect(Collectors.toList());
+            double A = 0;
+            double C = 0;
+            for (MenuItem item : itemsNotReady) {
+                if (item.getCookingApparatus() == null) {
+                    A += item.getPreparationTime();
+                } else {
+                    C += item.getPreparationTime();
+                }
+            }
+            int D = NUMBER_OF_OVENS + NUMBER_OF_STOVES;
+
+            double E = items.size();
+            int F = itemsNotReady.size();
+            return ( A / B +  C / D) * (E + F) / F;
+        } else return 0D;
     }
 
     private static List<MenuItem> initMenuItems() throws IOException {
