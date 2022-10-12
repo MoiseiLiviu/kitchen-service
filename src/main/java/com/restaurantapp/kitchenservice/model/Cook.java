@@ -1,16 +1,19 @@
 package com.restaurantapp.kitchenservice.model;
 
-import com.restaurantapp.kitchenservice.constants.enums.CookingApparatus;
+import com.restaurantapp.kitchenservice.constants.enums.CookingApparatusType;
 import com.restaurantapp.kitchenservice.service.KitchenServiceImpl;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Comparator;
-import java.util.PriorityQueue;
-import java.util.Queue;
-import java.util.concurrent.*;
+import java.util.Optional;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.atomic.AtomicLong;
+
+import static com.restaurantapp.kitchenservice.KitchenServiceApplication.TIME_UNIT;
 
 @Setter
 @Getter
@@ -20,74 +23,60 @@ public class Cook {
     private Long id;
     private int rank;
     private int proficiency;
-    private ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
-
-    private final Queue<OrderItem> itemsQueue = new PriorityQueue<>(11, Comparator.comparing(OrderItem::getPriority));
-
     private AtomicLong idCounter = new AtomicLong();
-    private int concurrentDishesCounter = 0;
 
     public Cook(Integer rank, Integer proficiency) {
         this.id = idCounter.incrementAndGet();
         this.rank = rank;
         this.proficiency = proficiency;
+        init();
     }
 
-    public void takeOrderItem(OrderItem orderItem) {
+    private final BlockingQueue<OrderItem> itemsQueue = new PriorityBlockingQueue<>(999, Comparator.comparing(OrderItem::getPickupTime).thenComparing(i->i.getCookingApparatusType() == null? 0 : 3));
 
-        if (concurrentDishesCounter == proficiency) {
-            itemsQueue.add(orderItem);
-        } else {
-            this.concurrentDishesCounter++;
-            executorService.schedule(() -> cookOrderItem(orderItem), orderItem.getCookingTime(), TimeUnit.MICROSECONDS);
-        }
-    }
+    private void init() {
 
-    public void cookOrderItem(OrderItem orderItem) {
-        try {
-            if (orderItem != null) {
-                releaseCookingApparatus(orderItem);
-                this.concurrentDishesCounter--;
-                log.info(String.format("Order item %s is ready.", orderItem));
-                KitchenServiceImpl.checkIfOrderIsReady(orderItem, this.id);
-                if (concurrentDishesCounter != proficiency) {
-                    OrderItem nextItem = itemsQueue.poll();
-                    if (nextItem != null) {
-                        this.concurrentDishesCounter++;
-                        acquireCookingApparatusIfNeeded(nextItem);
-                        executorService.schedule(() -> cookOrderItem(nextItem), nextItem.getCookingTime(), TimeUnit.MICROSECONDS);
+        for (int i = 0; i < proficiency; i++) {
+            new Thread(() -> {
+                while (true) {
+                    try {
+                        Optional<OrderItem> orderItemOptional = KitchenServiceImpl.items.stream().filter(item->item.getComplexity() <= this.rank).findAny();
+                        if(orderItemOptional.isPresent()) {
+                            OrderItem orderItem = orderItemOptional.get();
+                            if (KitchenServiceImpl.items.remove(orderItem)) {
+                                if (orderItem.getComplexity() <= this.rank) {
+                                    if (orderItem.getCookingApparatusType() == null) {
+                                        Thread.sleep(orderItem.getCookingTime() * TIME_UNIT);
+                                        KitchenServiceImpl.checkIfOrderIsReady(orderItem, this.id);
+                                    } else if (orderItem.getCookingApparatusType() == CookingApparatusType.OVEN)
+                                        Oven.getInstance().addOrderItemToQueue(this, orderItem);
+                                    else if (orderItem.getCookingApparatusType() == CookingApparatusType.STOVE)
+                                        Stove.getInstance().addOrderItemToQueue(this, orderItem);
+                                } else {
+                                    KitchenServiceImpl.items.add(orderItem);
+                                }
+                            }
+                        } else {
+                            Thread.sleep(10);
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
                     }
+
                 }
-            }
-        } catch (InterruptedException ex) {
-            log.error(ex.getMessage());
-            Thread.currentThread().interrupt();
+            }).start();
         }
     }
 
-    private void releaseCookingApparatus(OrderItem orderItem) {
-
-        if (orderItem.getCookingApparatus() != null) {
-            if (orderItem.getCookingApparatus().equals(CookingApparatus.OVEN)) {
-                KitchenServiceImpl.ovenSemaphore.release();
-            } else if (orderItem.getCookingApparatus().equals(CookingApparatus.STOVE)) {
-                KitchenServiceImpl.stoveSemaphore.release();
-            }
-        }
+    public int getProficiency() {
+        return proficiency;
     }
 
-    private void acquireCookingApparatusIfNeeded(OrderItem orderItem) throws InterruptedException {
-
-        if (orderItem.getCookingApparatus() != null) {
-            if (orderItem.getCookingApparatus().equals(CookingApparatus.OVEN)) {
-                KitchenServiceImpl.useOven();
-            } else if (orderItem.getCookingApparatus().equals(CookingApparatus.STOVE)) {
-                KitchenServiceImpl.useStove();
-            }
-        }
+    public BlockingQueue<OrderItem> getItemsQueue() {
+        return itemsQueue;
     }
 
-    public double getOrderItemsQueueSizeProeficiencyRatio() {
-        return (itemsQueue.size() / (double) proficiency);
+    public Double getQueueSizeOnProeficiencyRatio() {
+        return (double) itemsQueue.size() / proficiency;
     }
 }
