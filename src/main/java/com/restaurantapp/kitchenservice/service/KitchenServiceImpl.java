@@ -13,8 +13,15 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.time.Instant;
 import java.util.*;
-import java.util.concurrent.*;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.stream.Collectors;
+
+import static com.restaurantapp.kitchenservice.KitchenServiceApplication.TIME_UNIT;
+import static com.restaurantapp.kitchenservice.model.Oven.NUMBER_OF_OVENS;
+import static com.restaurantapp.kitchenservice.model.Stove.NUMBER_OF_STOVES;
 
 @Service
 @Slf4j
@@ -22,32 +29,37 @@ public class KitchenServiceImpl implements KitchenService {
 
     private static final String dinningServiceHallUrl = "http://localhost:8082/dinning-hall/distribution";
 
-    private final List<Cook> cooks = new ArrayList<>();
+    private static final List<Cook> cooks = new ArrayList<>();
 
-    private static final Integer NUMBER_OF_STOVES = 1;
-    private static final Integer NUMBER_OF_OVENS = 2;
-
-    public static final Semaphore stoveSemaphore = new Semaphore(NUMBER_OF_STOVES);
-    public static final Semaphore ovenSemaphore = new Semaphore(NUMBER_OF_OVENS);
+    private static final Map<Integer, List<Cook>> rankMap = new HashMap<>();
 
     protected static final Map<Long, List<FoodDetails>> orderToFoodListMap = new ConcurrentHashMap<>();
 
-    protected final List<MenuItem> menuItems;
-    protected static final List<Order> orders = new CopyOnWriteArrayList<>();
+    protected static final Map<Long, MenuItem> menuItems = new HashMap<>();
+    protected static final Map<Long, Order> orders = new HashMap<>();
 
     public static BlockingQueue<OrderItem> items = new LinkedBlockingQueue<>();
 
+    private static final RestTemplate restTemplate = new RestTemplate();
 
     KitchenServiceImpl() throws IOException {
         initCooks();
-        menuItems = initMenuItems();
+        initMenuItems();
     }
 
     private void initCooks() {
-        cooks.add(new Cook(3, 4));
-        cooks.add(new Cook(2, 3));
+        cooks.add(new Cook(3, 3));
         cooks.add(new Cook(2, 2));
-        cooks.add(new Cook(1, 2));
+        cooks.add(new Cook(1, 1));
+
+        for(int i = 1;i<=3;i++){
+            rankMap.put(i, new ArrayList<>());
+            for (Cook cook : cooks){
+                if(cook.getRank() >= i){
+                    rankMap.get(i).add(cook);
+                }
+            }
+        }
     }
 
     @Override
@@ -55,30 +67,40 @@ public class KitchenServiceImpl implements KitchenService {
 
         order.setOrderReceivedAt(Instant.now());
         orderToFoodListMap.put(order.getOrderId(), new ArrayList<>());
-        orders.add(order);
+        orders.put(order.getOrderId(), order);
         order.getItems()
                 .stream()
                 .map(this::getMenuItemById)
-                .map(mi -> new OrderItem(mi.getId(), order.getOrderId(), order.getPriority(), mi.getCookingApparatus(),
-                        mi.getComplexity(), mi.getPreparationTime(), mi.getComplexity()))
-                .forEach(i -> items.add(i));
+                .map(mi -> new OrderItem(mi.getId(), order.getOrderId(), order.getPriority(), mi.getCookingApparatusType(),
+                        mi.getComplexity(), mi.getPreparationTime(), mi.getComplexity(), order.getMaximumWaitTime().longValue(), order.getPickUpTime()))
+                .forEach(i-> {
+                    items.add(i);
+                });
         if(order.getWaiterId() == null){
+            log.info("Received external order : "+order);
             return getEstimatedPrepTimeForOrderById(order.getOrderId());
         }
         return null;
     }
 
+    public void addOrderItemToCooksQueue(OrderItem item){
+        Cook cook = cooks.stream().filter(c->c.getRank() >= item.getComplexity()).min(Comparator.comparing(Cook::getQueueSizeOnProeficiencyRatio)).orElseThrow();
+        cook.getItemsQueue().add(item);
+    }
+
     @Override
     public Double getEstimatedPrepTimeForOrderById(Long orderId) {
-        if(orderToFoodListMap.containsKey(orderId)) {
+        List<FoodDetails> foodDetails = orderToFoodListMap.get(orderId);
+        Order order = getOrderById(orderId);
+        if(foodDetails != null && order != null) {
             int B = cooks.stream().mapToInt(Cook::getProficiency).sum();
-            List<Long> cookedItemsIds = orderToFoodListMap.get(orderId).stream().map(FoodDetails::getItemId).collect(Collectors.toList());
-            Order order = getOrderById(orderId);
-            List<MenuItem> itemsNotReady = order.getItems().stream().filter(i -> !cookedItemsIds.contains(i)).map(this::getMenuItemById).collect(Collectors.toList());
+            List<Long> cookedItemsIds = orderToFoodListMap.get(orderId).stream().map(FoodDetails::getItemId).toList();
+            List<MenuItem> itemsNotReady = order.getItems().stream().filter(i -> !cookedItemsIds.contains(i)).map(this::getMenuItemById).toList();
             double A = 0;
             double C = 0;
+            if(itemsNotReady.isEmpty())return 0D;
             for (MenuItem item : itemsNotReady) {
-                if (item.getCookingApparatus() == null) {
+                if (item.getCookingApparatusType() == null) {
                     A += item.getPreparationTime();
                 } else {
                     C += item.getPreparationTime();
@@ -92,13 +114,14 @@ public class KitchenServiceImpl implements KitchenService {
         } else return 0D;
     }
 
-    private static List<MenuItem> initMenuItems() throws IOException {
+    private static void initMenuItems() throws IOException {
 
         ObjectMapper mapper = new ObjectMapper();
         InputStream is = KitchenServiceImpl.class.getResourceAsStream("/menu-items.json");
         try {
-            return mapper.readValue(is, new TypeReference<List<MenuItem>>() {
-            });
+            for (MenuItem menuItem : mapper.readValue(is, new TypeReference<List<MenuItem>>() {})){
+                menuItems.put(menuItem.getId(), menuItem);
+            }
         } catch (IOException e) {
             log.error(e.getMessage());
             throw e;
@@ -106,15 +129,7 @@ public class KitchenServiceImpl implements KitchenService {
     }
 
     private MenuItem getMenuItemById(Long id) {
-        return menuItems.stream().filter(menuItem -> menuItem.getId().equals(id)).findFirst().orElseThrow();
-    }
-
-    public static void useStove() throws InterruptedException {
-        stoveSemaphore.acquire();
-    }
-
-    public static void useOven() throws InterruptedException {
-        ovenSemaphore.acquire();
+        return menuItems.get(id);
     }
 
     public static void checkIfOrderIsReady(OrderItem orderItem, Long cookId) {
@@ -124,14 +139,14 @@ public class KitchenServiceImpl implements KitchenService {
         List<FoodDetails> foodDetails = orderToFoodListMap.get(orderItem.getOrderId());
         foodDetails.add(new FoodDetails(orderItem.getMenuId(), cookId));
         if (foodDetails.size() == order.getItems().size()) {
-            sendFinishedOrderBackToKitchen(order);
+            sendFinishedOrderBackToDinningHall(order);
         }
     }
 
-    private static void sendFinishedOrderBackToKitchen(Order order) {
+    private static void sendFinishedOrderBackToDinningHall(Order order) {
 
-        orders.remove(order);
-        orderToFoodListMap.remove(order.getOrderId());
+        log.info("Removing order : "+order);
+        orders.remove(order.getOrderId());
 
         FinishedOrder finishedOrder = new FinishedOrder();
         finishedOrder.setOrderId(order.getOrderId());
@@ -144,7 +159,8 @@ public class KitchenServiceImpl implements KitchenService {
         finishedOrder.setMaximumWaitTime(order.getMaximumWaitTime());
         finishedOrder.setTableId(order.getTableId());
 
-        RestTemplate restTemplate = new RestTemplate();
+        orderToFoodListMap.remove(order.getOrderId());
+
         ResponseEntity<Void> response = restTemplate.postForEntity(dinningServiceHallUrl, finishedOrder, Void.class);
         if (response.getStatusCode() != HttpStatus.ACCEPTED) {
             log.error("Order couldn't be sent back to dinning hall service!");
@@ -154,6 +170,6 @@ public class KitchenServiceImpl implements KitchenService {
     }
 
     public static Order getOrderById(Long id) {
-        return orders.stream().filter(o -> o.getOrderId().equals(id)).findFirst().orElseThrow();
+        return orders.get(id);
     }
 }

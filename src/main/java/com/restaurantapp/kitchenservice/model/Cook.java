@@ -1,14 +1,19 @@
 package com.restaurantapp.kitchenservice.model;
 
-import com.restaurantapp.kitchenservice.constants.enums.CookingApparatus;
+import com.restaurantapp.kitchenservice.constants.enums.CookingApparatusType;
 import com.restaurantapp.kitchenservice.service.KitchenServiceImpl;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
-
-import java.util.concurrent.Semaphore;
+import java.util.Comparator;
+import java.util.Optional;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.atomic.AtomicLong;
+
+import static com.restaurantapp.kitchenservice.KitchenServiceApplication.TIME_UNIT;
 
 @Setter
 @Getter
@@ -27,49 +32,51 @@ public class Cook {
         init();
     }
 
+    private final BlockingQueue<OrderItem> itemsQueue = new PriorityBlockingQueue<>(999, Comparator.comparing(OrderItem::getPickupTime).thenComparing(i->i.getCookingApparatusType() == null? 0 : 3));
+
     private void init() {
 
         for (int i = 0; i < proficiency; i++) {
             new Thread(() -> {
-                try {
-                    while (true) {
-                        OrderItem orderItem = KitchenServiceImpl.items.take();
-                        if (orderItem.getComplexity() > rank) {
-                            OrderItem oldItem = orderItem;
-                            orderItem = KitchenServiceImpl.items.take();
-                            KitchenServiceImpl.items.add(oldItem);
-                        }
-                        if (orderItem.getCookingApparatus() != null) {
-                            Semaphore semaphore = getSemaphoreByType(orderItem.getCookingApparatus());
-                            if (!semaphore.tryAcquire()) {
-                                OrderItem oldItem = orderItem;
-                                orderItem = KitchenServiceImpl.items.take();
-                                KitchenServiceImpl.items.add(oldItem);
-                            } else {
-                                Thread.sleep(orderItem.getCookingTime() * 50L);
-                                semaphore.release();
+                while (true) {
+                    try {
+                        Optional<OrderItem> orderItemOptional = KitchenServiceImpl.items.stream().filter(item->item.getComplexity() <= this.rank).findAny();
+                        if(orderItemOptional.isPresent()) {
+                            OrderItem orderItem = orderItemOptional.get();
+                            if (KitchenServiceImpl.items.remove(orderItem)) {
+                                if (orderItem.getComplexity() <= this.rank) {
+                                    if (orderItem.getCookingApparatusType() == null) {
+                                        Thread.sleep(orderItem.getCookingTime() * TIME_UNIT);
+                                        KitchenServiceImpl.checkIfOrderIsReady(orderItem, this.id);
+                                    } else if (orderItem.getCookingApparatusType() == CookingApparatusType.OVEN)
+                                        Oven.getInstance().addOrderItemToQueue(this, orderItem);
+                                    else if (orderItem.getCookingApparatusType() == CookingApparatusType.STOVE)
+                                        Stove.getInstance().addOrderItemToQueue(this, orderItem);
+                                } else {
+                                    KitchenServiceImpl.items.add(orderItem);
+                                }
                             }
                         } else {
-                            Thread.sleep(orderItem.getCookingTime() * 50L);
+                            Thread.sleep(10);
                         }
-                        KitchenServiceImpl.checkIfOrderIsReady(orderItem, id);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
                     }
-                } catch (
-                        InterruptedException e) {
-                    throw new RuntimeException(e);
+
                 }
             }).start();
         }
     }
 
-    private Semaphore getSemaphoreByType(CookingApparatus cookingApparatus) {
-
-        if (cookingApparatus.equals(CookingApparatus.OVEN)) {
-            return KitchenServiceImpl.ovenSemaphore;
-        } else return KitchenServiceImpl.stoveSemaphore;
-    }
-
     public int getProficiency() {
         return proficiency;
+    }
+
+    public BlockingQueue<OrderItem> getItemsQueue() {
+        return itemsQueue;
+    }
+
+    public Double getQueueSizeOnProeficiencyRatio() {
+        return (double) itemsQueue.size() / proficiency;
     }
 }

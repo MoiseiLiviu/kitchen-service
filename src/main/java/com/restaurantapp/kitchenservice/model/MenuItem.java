@@ -1,7 +1,7 @@
 package com.restaurantapp.kitchenservice.model;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
-import com.restaurantapp.kitchenservice.constants.enums.CookingApparatus;
+import com.restaurantapp.kitchenservice.constants.enums.CookingApparatusType;
 import lombok.Getter;
 
 @Getter
@@ -17,6 +17,6 @@ public class MenuItem {
     private Integer complexity;
 
     @JsonAlias("cooking-apparatus")
-    private CookingApparatus cookingApparatus;
+    private CookingApparatusType cookingApparatusType;
 
 }
