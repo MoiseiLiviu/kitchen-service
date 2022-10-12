@@ -18,7 +18,8 @@ public class KitchenController {
     @PostMapping
     @ResponseStatus(HttpStatus.ACCEPTED)
     public Double takeOrder(@RequestBody Order order){
-//        log.info("Received order : "+order.toString());
+
+
         return kitchenService.takeOrder(order);
     }
 

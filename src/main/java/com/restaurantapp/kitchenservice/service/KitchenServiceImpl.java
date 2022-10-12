@@ -48,8 +48,7 @@ public class KitchenServiceImpl implements KitchenService {
     }
 
     private void initCooks() {
-        cooks.add(new Cook(3, 4));
-        cooks.add(new Cook(2, 3));
+        cooks.add(new Cook(3, 3));
         cooks.add(new Cook(2, 2));
         cooks.add(new Cook(1, 1));
 
@@ -95,6 +94,7 @@ public class KitchenServiceImpl implements KitchenService {
         Order order = getOrderById(orderId);
         if(foodDetails != null && order != null) {
             int B = cooks.stream().mapToInt(Cook::getProficiency).sum();
+
             List<Long> cookedItemsIds = orderToFoodListMap.get(orderId).stream().map(FoodDetails::getItemId).collect(Collectors.toList());
             List<MenuItem> itemsNotReady = order.getItems().stream().filter(i -> !cookedItemsIds.contains(i)).map(this::getMenuItemById).collect(Collectors.toList());
             double A = 0;
@@ -137,6 +137,7 @@ public class KitchenServiceImpl implements KitchenService {
 
 //        log.info("Order item ready : "+orderItem);
         Order order = getOrderById(orderItem.getOrderId());
+
         List<FoodDetails> foodDetails = orderToFoodListMap.get(orderItem.getOrderId());
         foodDetails.add(new FoodDetails(orderItem.getMenuId(), cookId));
         if (foodDetails.size() == order.getItems().size()) {
@@ -145,6 +146,7 @@ public class KitchenServiceImpl implements KitchenService {
     }
 
     private static void sendFinishedOrderBackToDinningHall(Order order) {
+
 
         orders.remove(order.getOrderId());
 
@@ -166,6 +168,7 @@ public class KitchenServiceImpl implements KitchenService {
             log.error("Order couldn't be sent back to dinning hall service!");
         } else {
             log.info("Order " + finishedOrder + " was sent back to dinning hall successfully.");
+
         }
     }
 
