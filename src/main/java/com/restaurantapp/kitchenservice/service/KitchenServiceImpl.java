@@ -27,7 +27,7 @@ import static com.restaurantapp.kitchenservice.model.Stove.NUMBER_OF_STOVES;
 @Slf4j
 public class KitchenServiceImpl implements KitchenService {
 
-    private static final String dinningServiceHallUrl = "http://localhost:8082/dinning-hall/distribution";
+    private static final String dinningServiceHallUrl = "http://dinning-hall-service:8082/dinning-hall/distribution";
 
     private static final List<Cook> cooks = new ArrayList<>();
 
@@ -48,7 +48,8 @@ public class KitchenServiceImpl implements KitchenService {
     }
 
     private void initCooks() {
-        cooks.add(new Cook(3, 3));
+        cooks.add(new Cook(3, 4));
+        cooks.add(new Cook(2, 3));
         cooks.add(new Cook(2, 2));
         cooks.add(new Cook(1, 1));
 
@@ -94,8 +95,8 @@ public class KitchenServiceImpl implements KitchenService {
         Order order = getOrderById(orderId);
         if(foodDetails != null && order != null) {
             int B = cooks.stream().mapToInt(Cook::getProficiency).sum();
-            List<Long> cookedItemsIds = orderToFoodListMap.get(orderId).stream().map(FoodDetails::getItemId).toList();
-            List<MenuItem> itemsNotReady = order.getItems().stream().filter(i -> !cookedItemsIds.contains(i)).map(this::getMenuItemById).toList();
+            List<Long> cookedItemsIds = orderToFoodListMap.get(orderId).stream().map(FoodDetails::getItemId).collect(Collectors.toList());
+            List<MenuItem> itemsNotReady = order.getItems().stream().filter(i -> !cookedItemsIds.contains(i)).map(this::getMenuItemById).collect(Collectors.toList());
             double A = 0;
             double C = 0;
             if(itemsNotReady.isEmpty())return 0D;
@@ -132,10 +133,10 @@ public class KitchenServiceImpl implements KitchenService {
         return menuItems.get(id);
     }
 
-    public static void checkIfOrderIsReady(OrderItem orderItem, Long cookId) {
+    public synchronized static void checkIfOrderIsReady(OrderItem orderItem, Long cookId) {
 
+//        log.info("Order item ready : "+orderItem);
         Order order = getOrderById(orderItem.getOrderId());
-        System.out.println("order item : "+orderItem);
         List<FoodDetails> foodDetails = orderToFoodListMap.get(orderItem.getOrderId());
         foodDetails.add(new FoodDetails(orderItem.getMenuId(), cookId));
         if (foodDetails.size() == order.getItems().size()) {
@@ -145,7 +146,6 @@ public class KitchenServiceImpl implements KitchenService {
 
     private static void sendFinishedOrderBackToDinningHall(Order order) {
 
-        log.info("Removing order : "+order);
         orders.remove(order.getOrderId());
 
         FinishedOrder finishedOrder = new FinishedOrder();
@@ -165,7 +165,7 @@ public class KitchenServiceImpl implements KitchenService {
         if (response.getStatusCode() != HttpStatus.ACCEPTED) {
             log.error("Order couldn't be sent back to dinning hall service!");
         } else {
-            log.info("Order " + finishedOrder + " was sent back to kitchen successfully.");
+            log.info("Order " + finishedOrder + " was sent back to dinning hall successfully.");
         }
     }
 

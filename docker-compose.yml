@@ -4,7 +4,7 @@ services:
     container_name: kitchen-service
     image: lmoisei/kitchen-service:latest
     ports:
-      - 8081:8081
+      - 8083:8083
     networks:
       - spring-cloud-network
   dinning-hall-server:
@@ -14,7 +14,7 @@ services:
     container_name: dinning-hall-service
     image: lmoisei/dinning-hall-service:latest
     ports:
-      - 8080:8080
+      - 8082:8082
     networks:
       - spring-cloud-network
 networks:

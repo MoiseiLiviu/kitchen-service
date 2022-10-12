@@ -43,6 +43,7 @@ public class Cook {
                         Optional<OrderItem> orderItemOptional = KitchenServiceImpl.items.stream().filter(item->item.getComplexity() <= this.rank).findAny();
                         if(orderItemOptional.isPresent()) {
                             OrderItem orderItem = orderItemOptional.get();
+//                            log.info("Cooking order item : "+orderItem);
                             if (KitchenServiceImpl.items.remove(orderItem)) {
                                 if (orderItem.getComplexity() <= this.rank) {
                                     if (orderItem.getCookingApparatusType() == null) {
