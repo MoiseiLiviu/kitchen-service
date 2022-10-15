@@ -4,30 +4,28 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.restaurantapp.kitchenservice.model.*;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import javax.annotation.PostConstruct;
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.stream.Collectors;
 
-import static com.restaurantapp.kitchenservice.KitchenServiceApplication.TIME_UNIT;
 import static com.restaurantapp.kitchenservice.model.Oven.NUMBER_OF_OVENS;
 import static com.restaurantapp.kitchenservice.model.Stove.NUMBER_OF_STOVES;
 
 @Service
 @Slf4j
 public class KitchenServiceImpl implements KitchenService {
-
-    private static final String dinningServiceHallUrl = "http://dinning-hall-service:8082/dinning-hall/distribution";
 
     private static final List<Cook> cooks = new ArrayList<>();
 
@@ -42,7 +40,15 @@ public class KitchenServiceImpl implements KitchenService {
 
     private static final RestTemplate restTemplate = new RestTemplate();
 
-    KitchenServiceImpl() throws IOException {
+    private static String DINNNING_HALL_URL;
+
+    @Value("${dinning-hall-service.url}")
+    public void setDinningHallServiceUrl(String url){
+        DINNNING_HALL_URL = url;
+    }
+
+    @PostConstruct
+    public void init() throws IOException {
         initCooks();
         initMenuItems();
     }
@@ -50,8 +56,7 @@ public class KitchenServiceImpl implements KitchenService {
     private void initCooks() {
         cooks.add(new Cook(3, 4));
         cooks.add(new Cook(2, 3));
-        cooks.add(new Cook(2, 2));
-        cooks.add(new Cook(1, 1));
+        cooks.add(new Cook(1, 2));
 
         for(int i = 1;i<=3;i++){
             rankMap.put(i, new ArrayList<>());
@@ -161,7 +166,7 @@ public class KitchenServiceImpl implements KitchenService {
 
         orderToFoodListMap.remove(order.getOrderId());
 
-        ResponseEntity<Void> response = restTemplate.postForEntity(dinningServiceHallUrl, finishedOrder, Void.class);
+        ResponseEntity<Void> response = restTemplate.postForEntity(DINNNING_HALL_URL, finishedOrder, Void.class);
         if (response.getStatusCode() != HttpStatus.ACCEPTED) {
             log.error("Order couldn't be sent back to dinning hall service!");
         } else {

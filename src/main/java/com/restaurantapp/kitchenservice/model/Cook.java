@@ -9,7 +9,6 @@ import lombok.extern.slf4j.Slf4j;
 import java.util.Comparator;
 import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -58,7 +57,7 @@ public class Cook {
                                 }
                             }
                         } else {
-                            Thread.sleep(10);
+//                            Thread.sleep(10);
                         }
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
