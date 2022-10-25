@@ -9,7 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import java.util.Comparator;
 import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
+
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -43,6 +43,8 @@ public class Cook {
                         Optional<OrderItem> orderItemOptional = KitchenServiceImpl.items.stream().filter(item->item.getComplexity() <= this.rank).findAny();
                         if(orderItemOptional.isPresent()) {
                             OrderItem orderItem = orderItemOptional.get();
+//                            log.info("Cooking order item : "+orderItem);
+
                             if (KitchenServiceImpl.items.remove(orderItem)) {
                                 if (orderItem.getComplexity() <= this.rank) {
                                     if (orderItem.getCookingApparatusType() == null) {
@@ -57,7 +59,8 @@ public class Cook {
                                 }
                             }
                         } else {
-                            Thread.sleep(10);
+//                            Thread.sleep(10);
+
                         }
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
