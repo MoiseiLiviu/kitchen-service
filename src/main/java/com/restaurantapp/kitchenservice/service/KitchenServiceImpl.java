@@ -47,6 +47,9 @@ public class KitchenServiceImpl implements KitchenService {
         DINNNING_HALL_URL = url;
     }
 
+    @Value("${restaurant.menu}")
+    public String restaurantMenu;
+
     @PostConstruct
     public void init() throws IOException {
         initCooks();
@@ -70,7 +73,6 @@ public class KitchenServiceImpl implements KitchenService {
 
     @Override
     public Double takeOrder(Order order) {
-
         order.setOrderReceivedAt(Instant.now());
         orderToFoodListMap.put(order.getOrderId(), new ArrayList<>());
         orders.put(order.getOrderId(), order);
@@ -79,19 +81,12 @@ public class KitchenServiceImpl implements KitchenService {
                 .map(this::getMenuItemById)
                 .map(mi -> new OrderItem(mi.getId(), order.getOrderId(), order.getPriority(), mi.getCookingApparatusType(),
                         mi.getComplexity(), mi.getPreparationTime(), mi.getComplexity(), order.getMaximumWaitTime().longValue(), order.getPickUpTime()))
-                .forEach(i-> {
-                    items.add(i);
-                });
+                .forEach(i-> items.add(i));
         if(order.getWaiterId() == null){
             log.info("Received external order : "+order);
             return getEstimatedPrepTimeForOrderById(order.getOrderId());
         }
         return null;
-    }
-
-    public void addOrderItemToCooksQueue(OrderItem item){
-        Cook cook = cooks.stream().filter(c->c.getRank() >= item.getComplexity()).min(Comparator.comparing(Cook::getQueueSizeOnProeficiencyRatio)).orElseThrow();
-        cook.getItemsQueue().add(item);
     }
 
     @Override
@@ -120,10 +115,9 @@ public class KitchenServiceImpl implements KitchenService {
         } else return 0D;
     }
 
-    private static void initMenuItems() throws IOException {
-
+    private void initMenuItems() throws IOException {
         ObjectMapper mapper = new ObjectMapper();
-        InputStream is = KitchenServiceImpl.class.getResourceAsStream("/menu-items.json");
+        InputStream is = KitchenServiceImpl.class.getResourceAsStream("/"+restaurantMenu);
         try {
             for (MenuItem menuItem : mapper.readValue(is, new TypeReference<List<MenuItem>>() {})){
                 menuItems.put(menuItem.getId(), menuItem);
@@ -139,7 +133,6 @@ public class KitchenServiceImpl implements KitchenService {
     }
 
     public synchronized static void checkIfOrderIsReady(OrderItem orderItem, Long cookId) {
-
 //        log.info("Order item ready : "+orderItem);
         Order order = getOrderById(orderItem.getOrderId());
         List<FoodDetails> foodDetails = orderToFoodListMap.get(orderItem.getOrderId());
@@ -150,7 +143,6 @@ public class KitchenServiceImpl implements KitchenService {
     }
 
     private static void sendFinishedOrderBackToDinningHall(Order order) {
-
         orders.remove(order.getOrderId());
 
         FinishedOrder finishedOrder = new FinishedOrder();
